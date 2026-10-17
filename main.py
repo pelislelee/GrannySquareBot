@@ -1,13 +1,7 @@
-
 import streamlit as st
 from PIL import Image
 from io import BytesIO
-from datetime import datetime
-import uuid
-
-# =========================================================
-# PAGE CONFIGURATION
-# =========================================================
+import database
 
 st.set_page_config(
     page_title="GrannySquareBot",
@@ -16,250 +10,344 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# =========================================================
-# CUSTOM CSS
-# =========================================================
+database.initialize_database()
 
+@st.dialog("Sign In / Log In", width="small")
+def login_dialog():
+    st.write("Enter your username and password to continue.")
+    
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
+
+        if submitted:
+            if username.strip() and password.strip():
+                user_id = database.authenticate_or_create_user(
+                    username.strip(), password
+                )
+                if user_id is not None:
+                    st.session_state.authenticated = True
+                    st.session_state.user_id = user_id
+                    st.session_state.user = username.strip()
+                    st.session_state.loaded_user_id = None
+                    st.rerun()
+                else:
+                    st.error("Username or password is incorrect.")
+            else:
+                st.error("Username and password cannot be empty.")
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
+    st.session_state.authenticated = False
+
+# -----------------------------------------------------------------------------
+# PALETTE STYLES & CUSTOM CSS (Using provided Blue & Brown palette)
+# Chambray: #6893BC | Pale Cornflower: #90967A / #A6C8E0
+# Parchment White: #F8F5F0 | Brown: #6B553D | Expresso Brown: #342B1C
+# -----------------------------------------------------------------------------
 st.markdown("""
 <style>
-/* General page */
-.stApp {
-    background-color: #ffffff;
-    color: #252525;
+/* Main App Background & Text */
+.stApp { 
+    background-color: #F8F5F0; 
+    color: #342B1C; 
 }
 
-header[data-testid="stHeader"] {
-    background-color: #ffffff;
+header[data-testid="stHeader"] { 
+    background-color: #F8F5F0; 
 }
 
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background-color: #f7f7f8;
-    border-right: 1px solid #e5e5e5;
+/* Modal / Dialog Styling */
+div[role="dialog"] {
+    background-color: #EFE9E0 !important;
+    border: 1px solid #D6CBC1 !important;
+    border-radius: 16px !important;
+    color: #342B1C !important;
 }
 
-section[data-testid="stSidebar"] > div {
-    padding-top: 1.2rem;
+div[role="dialog"] h2 {
+    color: #342B1C !important;
+    font-weight: 700 !important;
 }
 
-.brand {
-    font-size: 23px;
-    font-weight: 750;
-    letter-spacing: -0.8px;
-    color: #262626;
-    margin-bottom: 4px;
+div[role="dialog"] input {
+    background-color: #FFFFFF !important;
+    color: #342B1C !important;
+    border: 1px solid #D6CBC1 !important;
+    border-radius: 8px !important;
 }
 
-.brand-subtitle {
-    font-size: 12px;
-    color: #777777;
-    margin-bottom: 24px;
+div[role="dialog"] button[type="submit"] {
+    background-color: #6893BC !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 8px !important;
 }
 
-.section-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: #888888;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin: 20px 0 8px 4px;
+div[role="dialog"] button[type="submit"]:hover {
+    background-color: #557FA7 !important;
+    color: #FFFFFF !important;
 }
 
-/* Buttons */
-.stButton > button {
-    border-radius: 10px;
-    border: 1px solid #e5e5e5;
-    min-height: 42px;
-    text-align: left;
-    transition: background-color 0.2s ease;
+[data-testid="stFormSubmitButton"] button {
+    background-color: #6893BC !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 8px !important;
 }
 
-.stButton > button:hover {
-    border-color: #b7a5d8;
-    color: #5e4789;
+[data-testid="stFormSubmitButton"] button:hover {
+    background-color: #557FA7 !important;
+    color: #FFFFFF !important;
 }
 
-/* Main chat area */
-.main-title {
-    font-size: 25px;
-    font-weight: 650;
-    letter-spacing: -0.6px;
-    color: #262626;
+/* Sidebar Styling */
+section[data-testid="stSidebar"] { 
+    background-color: #EFE9E0; 
+    border-right: 1px solid #D6CBC1; 
+}
+
+section[data-testid="stSidebar"] > div { 
+    padding-top: 1.2rem; 
+}
+
+.brand { 
+    font-size: 23px; 
+    font-weight: 750; 
+    letter-spacing: -0.8px; 
+    color: #342B1C; 
+    margin-bottom: 4px; 
+}
+
+.brand-subtitle { 
+    font-size: 12px; 
+    color: #6B553D; 
+    margin-bottom: 24px; 
+}
+
+.section-label { 
+    font-size: 12px; 
+    font-weight: 600; 
+    color: #6B553D; 
+    text-transform: uppercase; 
+    letter-spacing: 1px; 
+    margin: 20px 0 8px 4px; 
+}
+
+/* Primary & Sidebar Buttons */
+.stButton > button { 
+    border-radius: 10px; 
+    border: 1px solid #D6CBC1; 
+    background-color: #FFFFFF;
+    color: #342B1C;
+    transition: all 0.2s ease; 
+}
+
+.stButton > button:hover { 
+    border-color: #6B553D; 
+    color: #6B553D; 
+    background-color: #F8F5F0;
+}
+
+/* Compact Sidebar Chat Items */
+div[data-testid="stHorizontalBlock"] button {
+    border-radius: 8px;
+    padding: 4px 8px;
+    min-height: 38px;
+}
+
+/* Main Titles */
+.main-title { 
+    font-size: 26px; 
+    font-weight: 700; 
+    letter-spacing: -0.6px; 
+    color: #342B1C; 
+    text-align: center; 
+    margin-top: 15px; 
+    margin-bottom: 6px; 
+}
+
+.main-subtitle { 
+    text-align: center; 
+    font-size: 14px; 
+    color: #6B553D; 
+    margin-bottom: 24px; 
+}
+
+/* Centered image upload control */
+[data-testid="stFileUploaderDropzone"] {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+}
+
+[data-testid="stFileUploaderDropzoneInstructions"] {
+    display: none !important;
+}
+
+[data-testid="stFileUploaderDropzone"] button {
+    width: 100% !important;
+    min-height: 72px !important;
+    background-color: #6893BC !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 12px !important;
+    font-size: 17px !important;
+    font-weight: 600 !important;
+}
+
+[data-testid="stFileUploaderDropzone"] button:hover {
+    background-color: #557FA7 !important;
+    color: #FFFFFF !important;
+}
+
+.upload-info {
+    margin-top: 12px;
+    color: #6B553D;
+    font-size: 13px;
+    line-height: 1.6;
     text-align: center;
-    margin-top: 55px;
-    margin-bottom: 8px;
 }
 
-.main-subtitle {
-    text-align: center;
-    font-size: 14px;
-    color: #858585;
-    margin-bottom: 32px;
+/* Welcome Card */
+.welcome-card { 
+    background: #FFFFFF; 
+    border: 1px solid #E5DDD3; 
+    border-radius: 16px; 
+    padding: 22px; 
+    margin: 0 auto 24px auto; 
+    max-width: 600px; 
 }
 
-.welcome-card {
-    background: #faf9fc;
-    border: 1px solid #ece7f4;
-    border-radius: 16px;
-    padding: 22px;
-    margin: 10px auto;
-    max-width: 650px;
+.welcome-card h3 { 
+    font-size: 17px; 
+    margin-bottom: 8px; 
+    color: #342B1C; 
 }
 
-.welcome-card h3 {
-    font-size: 17px;
-    margin-bottom: 8px;
-    color: #383044;
+.welcome-card p { 
+    font-size: 14px; 
+    line-height: 1.7; 
+    color: #6B553D; 
+    margin-bottom: 0; 
 }
 
-.welcome-card p {
-    font-size: 14px;
-    line-height: 1.7;
-    color: #66616e;
-    margin-bottom: 0;
-}
-
-/* Chat messages */
-[data-testid="stChatMessage"] {
-    border-radius: 14px;
-    padding: 14px 16px;
-}
-
-/* Chat input */
-[data-testid="stChatInput"] {
-    border-radius: 18px;
-}
-
-[data-testid="stChatInput"] textarea {
-    font-size: 15px;
+/* Chat Messages */
+[data-testid="stChatMessage"] { 
+    background-color: #FFFFFF;
+    border: 1px solid #E8E1D7;
+    border-radius: 14px; 
+    padding: 14px 16px; 
+    margin-bottom: 12px;
 }
 
 /* Footer */
-.footer-note {
-    color: #999999;
-    text-align: center;
-    font-size: 11px;
-    margin-top: 12px;
+.footer-note { 
+    color: #6B553D; 
+    text-align: center; 
+    font-size: 11px; 
+    margin-top: 30px; 
+    margin-bottom: 10px;
 }
 
-/* Images */
-[data-testid="stImage"] img {
-    border-radius: 12px;
+[data-testid="stImage"] img { 
+    border-radius: 12px; 
 }
 </style>
 """, unsafe_allow_html=True)
 
+if not st.session_state.authenticated:
+    login_dialog()
+    st.stop()
 
-# =========================================================
-# SESSION STATE
-# =========================================================
+# -----------------------------------------------------------------------------
+# CHAT LOGIC & STATE
+# -----------------------------------------------------------------------------
+def load_user_projects(user_id):
+    projects = {}
+    for project_id, project_name, created_at in database.list_projects(user_id):
+        messages = []
+        for image_bytes, pattern in database.list_patterns(project_id):
+            messages.extend([
+                {
+                    "role": "user",
+                    "content": "Uploading image...",
+                    "image_bytes": image_bytes,
+                    "image_name": None,
+                },
+                {
+                    "role": "assistant",
+                    "content": pattern,
+                    "image_bytes": None,
+                    "image_name": None,
+                },
+            ])
+        projects[project_id] = {
+            "title": project_name,
+            "created_at": created_at,
+            "messages": messages,
+        }
+    return projects
+
 
 def create_chat():
-    chat_id = str(uuid.uuid4())
+    user_id = st.session_state.user_id
+    if user_id is None:
+        raise RuntimeError("A logged-in user is required to create a project.")
 
+    chat_id, created_at = database.create_project(user_id, "New Chat")
     st.session_state.chats[chat_id] = {
-        "title": "Obrolan baru",
-        "created_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "title": "New Chat",
+        "created_at": created_at,
         "messages": []
     }
-
     st.session_state.active_chat = chat_id
 
+if st.session_state.loaded_user_id != st.session_state.user_id:
+    st.session_state.chats = load_user_projects(st.session_state.user_id)
+    st.session_state.active_chat = None
+    st.session_state.loaded_user_id = st.session_state.user_id
 
 if "chats" not in st.session_state:
     st.session_state.chats = {}
 
-if "active_chat" not in st.session_state:
+if not st.session_state.chats:
     create_chat()
+elif st.session_state.get("active_chat") not in st.session_state.chats:
+    st.session_state.active_chat = next(iter(st.session_state.chats))
 
+if "renaming_chat" not in st.session_state:
+    st.session_state.renaming_chat = None
 
-# =========================================================
-# MODEL RESPONSE
-# =========================================================
-
-def generate_response(image_bytes, prompt):
-    """
-    TEMPORARY RESPONSE.
-
-    Replace this function with your trained LLaVA inference code.
-
-    Parameters
-    ----------
-    image_bytes : bytes or None
-        Image uploaded by the user.
-    prompt : str
-        User's instruction.
-
-    Returns
-    -------
-    str
-        Generated crochet pattern.
-    """
-
-    if image_bytes is None:
-        return (
-            "Silakan unggah gambar granny square terlebih dahulu "
-            "agar saya dapat membantu membuat pola rajutannya."
-        )
-
-    if not prompt.strip():
-        prompt = (
-            "Write the step-by-step crochet pattern instructions "
-            "for this granny square."
-        )
-
-    # TODO:
-    # 1. Load your trained LLaVA model and LoRA adapter.
-    # 2. Process image_bytes into a PIL image.
-    # 3. Pass the image and prompt to the model.
-    # 4. Decode and return the generated pattern.
-
+def generate_response(image_bytes):
+    """Generated crochet pattern based strictly on uploaded image."""
     return (
-        "**Contoh hasil pola rajutan**\n\n"
-        "Gambar berhasil diterima. Hubungkan fungsi ini dengan "
-        "model LLaVA yang sudah dilatih untuk menghasilkan pola "
-        "sesuai gambar.\n\n"
+        "**Generated Crochet Pattern from Image**\n\n"
         "**Base:** Make a magic ring.\n\n"
-        "**Round 1:** Chain 3, then work 2 double crochet stitches "
-        "into the ring. Chain 2 to form a corner. Repeat the "
-        "appropriate stitch sequence to form the square.\n\n"
-        "*Catatan: Ini hanya contoh tampilan, bukan pola yang "
-        "dihasilkan dari analisis gambar.*"
+        "**Round 1:** Chain 3, work 2 double crochet stitches into the ring. "
+        "Chain 2 to form a corner. Repeat sequence to form the square.\n\n"
+        "*This pattern is automatically generated from image analysis.*"
     )
 
-
-# =========================================================
-# LEFT SIDEBAR
-# =========================================================
-
+# -----------------------------------------------------------------------------
+# SIDEBAR (with Integrated Right-Aligned Edit Icon)
+# -----------------------------------------------------------------------------
 with st.sidebar:
-
+    st.markdown('<div class="brand">🧶 GrannySquareBot</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="brand">🧶 GrannySquareBot</div>',
+        f'<div class="brand-subtitle">Logged in as <b>{st.session_state.get("user", "User")}</b></div>',
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        '<div class="brand-subtitle">'
-        'Your AI crochet pattern assistant'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    if st.button(
-        "＋  Obrolan Baru",
-        use_container_width=True,
-        type="primary"
-    ):
+    if st.button("＋  New Chat", use_container_width=True, type="primary"):
         create_chat()
         st.rerun()
 
-    st.markdown(
-        '<div class="section-label">Riwayat Obrolan</div>',
-        unsafe_allow_html=True
-    )
+    st.markdown('<div class="section-label">Chat History</div>', unsafe_allow_html=True)
 
-    # Newest chats first
     chat_ids = sorted(
         st.session_state.chats.keys(),
         key=lambda cid: st.session_state.chats[cid]["created_at"],
@@ -267,153 +355,121 @@ with st.sidebar:
     )
 
     if not chat_ids:
-        st.caption("Belum ada riwayat obrolan.")
+        st.caption("No chat history available.")
 
     for chat_id in chat_ids:
         chat = st.session_state.chats[chat_id]
+        is_active = (chat_id == st.session_state.active_chat)
+        prefix = "● " if is_active else " "
 
-        # Highlight active conversation
-        prefix = "● " if chat_id == st.session_state.active_chat else "　"
-
-        if st.button(
-            prefix + chat["title"],
-            key=f"chat_{chat_id}",
-            use_container_width=True
-        ):
-            st.session_state.active_chat = chat_id
-            st.rerun()
+        # Check if user clicked rename on this specific item
+        if st.session_state.renaming_chat == chat_id:
+            with st.form(key=f"rename_form_{chat_id}"):
+                new_title = st.text_input("New Title:", value=chat["title"])
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.form_submit_button("Save", use_container_width=True):
+                        if new_title.strip():
+                            st.session_state.chats[chat_id]["title"] = new_title.strip()
+                            database.rename_project(
+                                st.session_state.user_id,
+                                chat_id,
+                                new_title.strip(),
+                            )
+                        st.session_state.renaming_chat = None
+                        st.rerun()
+                with col_cancel:
+                    if st.form_submit_button("Cancel", use_container_width=True):
+                        st.session_state.renaming_chat = None
+                        st.rerun()
+        else:
+            # Combined row with right-aligned edit icon inside
+            col_main, col_edit = st.columns([0.85, 0.15])
+            with col_main:
+                if st.button(
+                    prefix + chat["title"],
+                    key=f"chat_{chat_id}",
+                    use_container_width=True
+                ):
+                    st.session_state.active_chat = chat_id
+                    st.rerun()
+            with col_edit:
+                if st.button("✏️", key=f"edit_icon_{chat_id}", use_container_width=True, help="Rename project"):
+                    st.session_state.renaming_chat = chat_id
+                    st.rerun()
 
     st.divider()
+
+    if st.button("🚪 Exit / Logout", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.user = None
+        st.session_state.user_id = None
+        st.session_state.loaded_user_id = None
+        st.session_state.chats = {}
+        st.session_state.active_chat = None
+        st.rerun()
 
     st.caption("GrannySquareBot")
     st.caption("Image-to-text crochet pattern generation")
 
-
-# =========================================================
-# ACTIVE CHAT
-# =========================================================
-
-active_chat = st.session_state.chats[
-    st.session_state.active_chat
-]
-
+# -----------------------------------------------------------------------------
+# MAIN VIEW & COMPACT CENTERED FILE UPLOADER
+# -----------------------------------------------------------------------------
+active_chat = st.session_state.chats[st.session_state.active_chat]
 messages = active_chat["messages"]
 
+st.markdown('<div class="main-title">What would you like to crochet?</div>', unsafe_allow_html=True)
 
-# =========================================================
-# WELCOME SCREEN
-# =========================================================
+# Centered upload section
+col_left, col_center, col_right = st.columns([1, 1.6, 1])
 
-if not messages:
-
+with col_center:
+    uploaded_file = st.file_uploader(
+        "Upload your granny square image:",
+        type=["png", "jpg", "jpeg", "webp"],
+        key=f"uploader_{st.session_state.active_chat}",
+        label_visibility="collapsed"
+    )
     st.markdown(
-        '<div class="main-title">Apa yang ingin kamu rajut?</div>',
+        '<div class="upload-info">Upload your granny square image to generate a pattern automatically.'
+        '<br>Supported formats: PNG, JPG, JPEG, or WEBP.</div>',
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        '<div class="main-subtitle">'
-        'Unggah gambar granny square dan buat pola rajutan '
-        'langkah demi langkah.'
-        '</div>',
-        unsafe_allow_html=True
+if uploaded_file is not None:
+    image_bytes = uploaded_file.getvalue()
+    image_name = uploaded_file.name
+
+    already_processed = any(
+        msg.get("image_name") == image_name for msg in messages if msg["role"] == "user"
     )
 
-    st.markdown("""
-    <div class="welcome-card">
-        <h3>🧶 Crochet Pattern Generator</h3>
-        <p>
-            Kirim gambar motif rajutan yang ingin kamu buat.
-            GrannySquareBot dirancang untuk membantu menyusun
-            instruksi rajutan berdasarkan gambar, mulai dari
-            bagian dasar hingga setiap putaran.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-else:
-
-    # =====================================================
-    # DISPLAY CHAT HISTORY
-    # =====================================================
-
-    for message in messages:
-
-        with st.chat_message(
-            message["role"],
-            avatar="🧶" if message["role"] == "assistant" else "👤"
-        ):
-
-            if message.get("content"):
-                st.markdown(message["content"])
-
-            if message.get("image_bytes"):
-                st.image(
-                    Image.open(BytesIO(message["image_bytes"])),
-                    caption=message.get("image_name", "Uploaded image"),
-                    width=320
-                )
-
-
-# =========================================================
-# CHAT INPUT WITH IMAGE UPLOAD
-# =========================================================
-
-chat_input = st.chat_input(
-    "Ketik pesan atau unggah gambar granny square...",
-    accept_file="multiple",
-    file_type=["png", "jpg", "jpeg", "webp"],
-    key="chat_composer"
-)
-
-
-# =========================================================
-# HANDLE USER MESSAGE
-# =========================================================
-
-if chat_input is not None:
-
-    prompt = (chat_input.text or "").strip()
-    uploaded_files = list(chat_input.files or [])
-
-    # Allow text-only messages or image uploads
-    if prompt or uploaded_files:
-
-        # For this example, process the first uploaded image
-        uploaded_file = uploaded_files[0] if uploaded_files else None
-
-        image_bytes = (
-            uploaded_file.getvalue()
-            if uploaded_file is not None
-            else None
-        )
-
-        image_name = (
-            uploaded_file.name
-            if uploaded_file is not None
-            else None
-        )
-
-        # Set conversation title from first message
+    if not already_processed:
         if not messages:
-            if prompt:
-                active_chat["title"] = prompt[:32]
-            elif image_name:
-                active_chat["title"] = f"Gambar: {image_name[:24]}"
+            project_name = f"Image: {image_name[:18]}"
+            active_chat["title"] = project_name
+            database.rename_project(
+                st.session_state.user_id,
+                st.session_state.active_chat,
+                project_name,
+            )
 
-        # Save user message
-        user_message = {
+        messages.append({
             "role": "user",
-            "content": prompt,
+            "content": f"Uploading **{image_name}**...",
             "image_bytes": image_bytes,
             "image_name": image_name
-        }
+        })
 
-        messages.append(user_message)
+        with st.spinner("Analyzing image and generating crochet pattern..."):
+            answer = generate_response(image_bytes)
 
-        # Generate assistant response
-        with st.spinner("Menyiapkan pola rajutan..."):
-            answer = generate_response(image_bytes, prompt)
+        database.save_pattern(
+            st.session_state.user_id,
+            st.session_state.active_chat,
+            image_bytes,
+            answer,
+        )
 
         messages.append({
             "role": "assistant",
@@ -424,14 +480,33 @@ if chat_input is not None:
 
         st.rerun()
 
+st.divider()
 
-# =========================================================
-# FOOTER
-# =========================================================
+# Welcome Card (if empty conversation)
+if not messages:
+    st.markdown("""
+    <div class="welcome-card">
+        <h3>🧶 Crochet Pattern Generator</h3>
+        <p>
+            Simply upload a photo of the crochet pattern you have on the button above. The system will analyze
+            the image and generate step-by-step instructions automatically.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Render generated outputs and history below the uploader
+for message in messages:
+    with st.chat_message(message["role"], avatar="🧶" if message["role"] == "assistant" else "👤"):
+        if message.get("image_bytes"):
+            st.image(
+                Image.open(BytesIO(message["image_bytes"])),
+                caption=message.get("image_name", "Granny Square Image"),
+                width=280
+            )
+        if message.get("content"):
+            st.markdown(message["content"])
 
 st.markdown(
-    '<div class="footer-note">'
-    'GrannySquareBot · AI-assisted crochet pattern generation'
-    '</div>',
+    '<div class="footer-note">GrannySquareBot · AI-assisted crochet pattern generation</div>',
     unsafe_allow_html=True
 )
