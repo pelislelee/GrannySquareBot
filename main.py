@@ -1,7 +1,16 @@
+import json
+from io import BytesIO
+from pathlib import Path
+import hashlib
+import requests
+
 import streamlit as st
 from PIL import Image
-from io import BytesIO
+
 import database
+
+MODEL_DIR = Path(__file__).resolve().parent / "model"
+BASE_MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 
 st.set_page_config(
     page_title="GrannySquareBot",
@@ -306,6 +315,12 @@ def create_chat():
     }
     st.session_state.active_chat = chat_id
 
+
+def reset_image_uploader(chat_id):
+    reset_counts = st.session_state.setdefault("uploader_reset_counts", {})
+    reset_counts[chat_id] = reset_counts.get(chat_id, 0) + 1
+
+
 if st.session_state.loaded_user_id != st.session_state.user_id:
     st.session_state.chats = load_user_projects(st.session_state.user_id)
     st.session_state.active_chat = None
@@ -322,15 +337,53 @@ elif st.session_state.get("active_chat") not in st.session_state.chats:
 if "renaming_chat" not in st.session_state:
     st.session_state.renaming_chat = None
 
-def generate_response(image_bytes):
-    """Generated crochet pattern based strictly on uploaded image."""
-    return (
-        "**Generated Crochet Pattern from Image**\n\n"
-        "**Base:** Make a magic ring.\n\n"
-        "**Round 1:** Chain 3, work 2 double crochet stitches into the ring. "
-        "Chain 2 to form a corner. Repeat sequence to form the square.\n\n"
-        "*This pattern is automatically generated from image analysis.*"
-    )
+
+
+def generate_response(image_bytes: bytes) -> str:
+    api_url = st.secrets["GRANNYSQUARE_API_URL"].rstrip("/")
+    api_key = st.secrets["GRANNYSQUARE_API_KEY"]
+
+    try:
+        response = requests.post(
+            f"{api_url}/generate",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "ngrok-skip-browser-warning": "true",
+            },
+            files={
+                "file": (
+                    "granny_square.jpg",
+                    image_bytes,
+                    "image/jpeg",
+                )
+            },
+            timeout=600,
+        )
+
+        response.raise_for_status()
+        result = response.json()
+
+        answer = result.get("answer", "").strip()
+        if not answer:
+            raise RuntimeError("The API returned an empty response.")
+
+        return answer
+
+    except requests.Timeout as exc:
+        raise RuntimeError(
+            "The model took too long to respond. "
+            "Check that Colab is still running."
+        ) from exc
+
+    except requests.RequestException as exc:
+        details = ""
+        if exc.response is not None:
+            details = f" API response: {exc.response.text[:500]}"
+
+        raise RuntimeError(
+            "Could not get a response from the Colab model API."
+            + details
+        ) from exc
 
 # -----------------------------------------------------------------------------
 # SIDEBAR (with Integrated Right-Aligned Edit Icon)
@@ -424,61 +477,116 @@ st.markdown('<div class="main-title">What would you like to crochet?</div>', uns
 col_left, col_center, col_right = st.columns([1, 1.6, 1])
 
 with col_center:
+    uploader_reset_counts = st.session_state.setdefault(
+        "uploader_reset_counts", {}
+    )
+    active_chat_id = st.session_state.active_chat
+    uploader_key = (
+        f"uploader_{active_chat_id}_"
+        f"{uploader_reset_counts.get(active_chat_id, 0)}"
+    )
     uploaded_file = st.file_uploader(
         "Upload your granny square image:",
         type=["png", "jpg", "jpeg", "webp"],
-        key=f"uploader_{st.session_state.active_chat}",
+        key=uploader_key,
         label_visibility="collapsed"
     )
+    if uploaded_file is not None:
+        st.markdown(
+            """
+            <style>
+            [data-testid="stFileUploaderDropzone"] {
+                display: none !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        preview_col, cancel_col = st.columns([0.85, 0.15])
+        with preview_col:
+            st.image(
+                Image.open(BytesIO(uploaded_file.getvalue())),
+                caption=uploaded_file.name,
+                width=220,
+            )
+        with cancel_col:
+            st.button(
+                "✕",
+                key=(
+                    f"cancel_upload_{active_chat_id}_"
+                    f"{uploader_reset_counts.get(active_chat_id, 0)}"
+                ),
+                help="Cancel image upload",
+                on_click=reset_image_uploader,
+                args=(active_chat_id,),
+                use_container_width=True,
+            )
     st.markdown(
         '<div class="upload-info">Upload your granny square image to generate a pattern automatically.'
         '<br>Supported formats: PNG, JPG, JPEG, or WEBP.</div>',
         unsafe_allow_html=True
     )
 
+
 if uploaded_file is not None:
     image_bytes = uploaded_file.getvalue()
     image_name = uploaded_file.name
 
-    already_processed = any(
-        msg.get("image_name") == image_name for msg in messages if msg["role"] == "user"
+    # Identify the image by its actual contents, not its filename.
+    image_id = hashlib.sha256(image_bytes).hexdigest()
+
+    processed_images = st.session_state.setdefault(
+        "processed_images", set()
     )
 
-    if not already_processed:
-        if not messages:
-            project_name = f"Image: {image_name[:18]}"
-            active_chat["title"] = project_name
-            database.rename_project(
-                st.session_state.user_id,
-                st.session_state.active_chat,
-                project_name,
-            )
+    if image_id not in processed_images:
+        if st.button(
+            "Generate Crochet Pattern",
+            key=f"generate_{st.session_state.active_chat}",
+        ):
+            try:
+                with st.spinner(
+                    "Analyzing image and generating crochet pattern..."
+                ):
+                    answer = generate_response(image_bytes)
 
-        messages.append({
-            "role": "user",
-            "content": f"Uploading **{image_name}**...",
-            "image_bytes": image_bytes,
-            "image_name": image_name
-        })
+                database.save_pattern(
+                    st.session_state.user_id,
+                    st.session_state.active_chat,
+                    image_bytes,
+                    answer,
+                )
 
-        with st.spinner("Analyzing image and generating crochet pattern..."):
-            answer = generate_response(image_bytes)
+                if not messages:
+                    project_name = f"Image: {image_name[:18]}"
+                    active_chat["title"] = project_name
+                    database.rename_project(
+                        st.session_state.user_id,
+                        st.session_state.active_chat,
+                        project_name,
+                    )
 
-        database.save_pattern(
-            st.session_state.user_id,
-            st.session_state.active_chat,
-            image_bytes,
-            answer,
-        )
+                messages.extend([
+                    {
+                        "role": "user",
+                        "content": f"Uploaded **{image_name}**",
+                        "image_bytes": image_bytes,
+                        "image_name": image_name,
+                    },
+                    {
+                        "role": "assistant",
+                        "content": answer,
+                        "image_bytes": None,
+                        "image_name": None,
+                    },
+                ])
 
-        messages.append({
-            "role": "assistant",
-            "content": answer,
-            "image_bytes": None,
-            "image_name": None
-        })
+                processed_images.add(image_id)
+                st.rerun()
 
-        st.rerun()
+            except Exception as e:
+                st.error(f"Pattern generation failed: {e}")
+                st.exception(e)
 
 st.divider()
 
