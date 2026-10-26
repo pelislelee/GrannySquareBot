@@ -241,7 +241,7 @@ def load_user_projects(user_id):
             messages.extend([
                 {
                     "role": "user",
-                    "content": image_name,
+                    "content": None,
                     "image_bytes": image_bytes,
                     "image_name": None,
                 },
