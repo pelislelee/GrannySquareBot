@@ -3,6 +3,7 @@ from io import BytesIO
 from pathlib import Path
 import hashlib
 import requests
+import re
 
 import streamlit as st
 from PIL import Image
@@ -69,49 +70,6 @@ header[data-testid="stHeader"] {
     background-color: #F8F5F0; 
 }
 
-/* Modal / Dialog Styling */
-div[role="dialog"] {
-    background-color: #EFE9E0 !important;
-    border: 1px solid #D6CBC1 !important;
-    border-radius: 16px !important;
-    color: #342B1C !important;
-}
-
-div[role="dialog"] h2 {
-    color: #342B1C !important;
-    font-weight: 700 !important;
-}
-
-div[role="dialog"] input {
-    background-color: #FFFFFF !important;
-    color: #342B1C !important;
-    border: 1px solid #D6CBC1 !important;
-    border-radius: 8px !important;
-}
-
-div[role="dialog"] button[type="submit"] {
-    background-color: #6893BC !important;
-    color: #FFFFFF !important;
-    border: none !important;
-    border-radius: 8px !important;
-}
-
-div[role="dialog"] button[type="submit"]:hover {
-    background-color: #557FA7 !important;
-    color: #FFFFFF !important;
-}
-
-[data-testid="stFormSubmitButton"] button {
-    background-color: #6893BC !important;
-    color: #FFFFFF !important;
-    border: none !important;
-    border-radius: 8px !important;
-}
-
-[data-testid="stFormSubmitButton"] button:hover {
-    background-color: #557FA7 !important;
-    color: #FFFFFF !important;
-}
 
 /* Sidebar Styling */
 section[data-testid="stSidebar"] { 
@@ -283,7 +241,7 @@ def load_user_projects(user_id):
             messages.extend([
                 {
                     "role": "user",
-                    "content": "Uploading image...",
+                    "content": image_name,
                     "image_bytes": image_bytes,
                     "image_name": None,
                 },
@@ -316,6 +274,26 @@ def create_chat():
     st.session_state.active_chat = chat_id
 
 
+def hide_chat(chat_id):
+    database.hide_project(st.session_state.user_id, chat_id)
+    del st.session_state.chats[chat_id]
+    st.session_state.project_dialog = None
+    st.session_state.project_dialog_chat_id = None
+
+    if st.session_state.active_chat == chat_id:
+        remaining_chat_ids = sorted(
+            st.session_state.chats,
+            key=lambda existing_chat_id: st.session_state.chats[
+                existing_chat_id
+            ]["created_at"],
+            reverse=True,
+        )
+        if remaining_chat_ids:
+            st.session_state.active_chat = remaining_chat_ids[0]
+        else:
+            create_chat()
+
+
 def reset_image_uploader(chat_id):
     reset_counts = st.session_state.setdefault("uploader_reset_counts", {})
     reset_counts[chat_id] = reset_counts.get(chat_id, 0) + 1
@@ -334,9 +312,126 @@ if not st.session_state.chats:
 elif st.session_state.get("active_chat") not in st.session_state.chats:
     st.session_state.active_chat = next(iter(st.session_state.chats))
 
-if "renaming_chat" not in st.session_state:
-    st.session_state.renaming_chat = None
+if "project_dialog" not in st.session_state:
+    st.session_state.project_dialog = None
+if "project_dialog_chat_id" not in st.session_state:
+    st.session_state.project_dialog_chat_id = None
 
+
+@st.dialog("Chat options", width="small", dismissible=False)
+def chat_options_dialog():
+    chat_id = st.session_state.project_dialog_chat_id
+    if chat_id not in st.session_state.chats:
+        st.session_state.project_dialog = None
+        st.session_state.project_dialog_chat_id = None
+        st.rerun()
+
+    st.write(f"What would you like to do with **{st.session_state.chats[chat_id]['title']}**?")
+    col_edit, col_delete, col_cancel = st.columns(3)
+    with col_edit:
+        if st.button("Edit", key="chat_options_edit", use_container_width=True):
+            st.session_state.project_dialog = "rename"
+            st.rerun()
+    with col_delete:
+        if st.button("Delete", key="chat_options_delete", use_container_width=True):
+            st.session_state.project_dialog = "confirm_delete"
+            st.rerun()
+    with col_cancel:
+        if st.button("Cancel", key="chat_options_cancel", use_container_width=True):
+            st.session_state.project_dialog = None
+            st.session_state.project_dialog_chat_id = None
+            st.rerun()
+
+
+@st.dialog("Rename chat", width="small", dismissible=False)
+def rename_chat_dialog():
+    chat_id = st.session_state.project_dialog_chat_id
+    if chat_id not in st.session_state.chats:
+        st.session_state.project_dialog = None
+        st.session_state.project_dialog_chat_id = None
+        st.rerun()
+
+    with st.form("rename_chat_form"):
+        new_title = st.text_input(
+            "Chat name",
+            value=st.session_state.chats[chat_id]["title"],
+        )
+        col_save, col_cancel = st.columns(2)
+        with col_save:
+            save = st.form_submit_button("Save", use_container_width=True)
+        with col_cancel:
+            cancel = st.form_submit_button("Cancel", use_container_width=True)
+
+    if save:
+        if not new_title.strip():
+            st.error("Chat name cannot be empty.")
+            return
+        database.rename_project(
+            st.session_state.user_id,
+            chat_id,
+            new_title.strip(),
+        )
+        st.session_state.chats[chat_id]["title"] = new_title.strip()
+        st.session_state.project_dialog = None
+        st.session_state.project_dialog_chat_id = None
+        st.rerun()
+    if cancel:
+        st.session_state.project_dialog = "options"
+        st.rerun()
+
+
+
+@st.dialog("Delete chat?", width="small", dismissible=False)
+def confirm_delete_chat_dialog():
+    chat_id = st.session_state.project_dialog_chat_id
+    if chat_id not in st.session_state.chats:
+        st.session_state.project_dialog = None
+        st.session_state.project_dialog_chat_id = None
+        st.rerun()
+
+    st.write(
+        f"Remove **{st.session_state.chats[chat_id]['title']}** from chat history? "
+        "Its data will remain in the database."
+    )
+    col_delete, col_cancel = st.columns(2)
+    with col_delete:
+        confirm = st.button(
+            "Delete",
+            key="confirm_delete_chat",
+            type="primary",
+            use_container_width=True,
+        )
+    with col_cancel:
+        cancel = st.button(
+            "Cancel",
+            key="cancel_delete_chat",
+            use_container_width=True,
+        )
+
+    if confirm:
+        hide_chat(chat_id)
+        st.rerun()
+    if cancel:
+        st.session_state.project_dialog = "options"
+        st.rerun()
+
+def format_crochet_pattern(text: str) -> str:
+    """Place Base, Round, and Row instructions on separate lines."""
+
+    # Normalize existing line breaks.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Add a line break before Base, Round N, and Row N.
+    text = re.sub(
+        r"[ \t]*(?<!\w)(Base\s*:|Round\s+\d+\s*:|Row\s+\d+\s*:)",
+        r"\n\1",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # Remove excessive blank lines and trim the result.
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    return "\n\n".join(lines).strip()
 
 
 def generate_response(image_bytes: bytes) -> str:
@@ -364,6 +459,7 @@ def generate_response(image_bytes: bytes) -> str:
         result = response.json()
 
         answer = result.get("answer", "").strip()
+        answer = format_crochet_pattern(answer)
         if not answer:
             raise RuntimeError("The API returned an empty response.")
 
@@ -386,7 +482,7 @@ def generate_response(image_bytes: bytes) -> str:
         ) from exc
 
 # -----------------------------------------------------------------------------
-# SIDEBAR (with Integrated Right-Aligned Edit Icon)
+# SIDEBAR
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown('<div class="brand">🧶 GrannySquareBot</div>', unsafe_allow_html=True)
@@ -415,41 +511,25 @@ with st.sidebar:
         is_active = (chat_id == st.session_state.active_chat)
         prefix = "● " if is_active else " "
 
-        # Check if user clicked rename on this specific item
-        if st.session_state.renaming_chat == chat_id:
-            with st.form(key=f"rename_form_{chat_id}"):
-                new_title = st.text_input("New Title:", value=chat["title"])
-                col_save, col_cancel = st.columns(2)
-                with col_save:
-                    if st.form_submit_button("Save", use_container_width=True):
-                        if new_title.strip():
-                            st.session_state.chats[chat_id]["title"] = new_title.strip()
-                            database.rename_project(
-                                st.session_state.user_id,
-                                chat_id,
-                                new_title.strip(),
-                            )
-                        st.session_state.renaming_chat = None
-                        st.rerun()
-                with col_cancel:
-                    if st.form_submit_button("Cancel", use_container_width=True):
-                        st.session_state.renaming_chat = None
-                        st.rerun()
-        else:
-            # Combined row with right-aligned edit icon inside
-            col_main, col_edit = st.columns([0.85, 0.15])
-            with col_main:
-                if st.button(
-                    prefix + chat["title"],
-                    key=f"chat_{chat_id}",
-                    use_container_width=True
-                ):
-                    st.session_state.active_chat = chat_id
-                    st.rerun()
-            with col_edit:
-                if st.button("✏️", key=f"edit_icon_{chat_id}", use_container_width=True, help="Rename project"):
-                    st.session_state.renaming_chat = chat_id
-                    st.rerun()
+        col_main, col_edit = st.columns([0.84, 0.16])
+        with col_main:
+            if st.button(
+                prefix + chat["title"],
+                key=f"chat_{chat_id}",
+                use_container_width=True
+            ):
+                st.session_state.active_chat = chat_id
+                st.rerun()
+        with col_edit:
+            if st.button(
+                "✏️",
+                key=f"edit_icon_{chat_id}",
+                use_container_width=True,
+                help="Edit or delete chat",
+            ):
+                st.session_state.project_dialog_chat_id = chat_id
+                st.session_state.project_dialog = "options"
+                st.rerun()
 
     st.divider()
 
@@ -460,10 +540,19 @@ with st.sidebar:
         st.session_state.loaded_user_id = None
         st.session_state.chats = {}
         st.session_state.active_chat = None
+        st.session_state.project_dialog = None
+        st.session_state.project_dialog_chat_id = None
         st.rerun()
 
     st.caption("GrannySquareBot")
     st.caption("Image-to-text crochet pattern generation")
+
+if st.session_state.project_dialog == "options":
+    chat_options_dialog()
+elif st.session_state.project_dialog == "rename":
+    rename_chat_dialog()
+elif st.session_state.project_dialog == "confirm_delete":
+    confirm_delete_chat_dialog()
 
 # -----------------------------------------------------------------------------
 # MAIN VIEW & COMPACT CENTERED FILE UPLOADER
@@ -612,7 +701,12 @@ for message in messages:
                 width=280
             )
         if message.get("content"):
-            st.markdown(message["content"])
+            if message["role"] == "assistant":
+                st.markdown(
+                    format_crochet_pattern(message["content"])
+                )
+            else:
+                st.markdown(message["content"])
 
 st.markdown(
     '<div class="footer-note">GrannySquareBot · AI-assisted crochet pattern generation</div>',

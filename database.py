@@ -53,6 +53,7 @@ def initialize_database(db_path: Path | None = None) -> None:
                 project_name TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                is_hidden INTEGER NOT NULL DEFAULT 0,
                 user_id INTEGER NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             );
@@ -67,6 +68,13 @@ def initialize_database(db_path: Path | None = None) -> None:
             );
             """
         )
+        project_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(projects)")
+        }
+        if "is_hidden" not in project_columns:
+            connection.execute(
+                "ALTER TABLE projects ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0"
+            )
 
 
 def authenticate_or_create_user(
@@ -114,12 +122,28 @@ def list_projects(
             """
             SELECT id, project_name, created_at
             FROM projects
-            WHERE user_id = ?
+            WHERE user_id = ? AND is_hidden = 0
             ORDER BY updated_at DESC, id DESC
             """,
             (user_id,),
         ).fetchall()
     return [(int(row[0]), str(row[1]), str(row[2])) for row in projects]
+
+
+def hide_project(
+    user_id: int, project_id: int, db_path: Path | None = None
+) -> None:
+    with _connection(db_path) as connection:
+        cursor = connection.execute(
+            """
+            UPDATE projects
+            SET is_hidden = 1
+            WHERE id = ? AND user_id = ?
+            """,
+            (project_id, user_id),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("Project does not exist or does not belong to this user.")
 
 
 def list_patterns(
