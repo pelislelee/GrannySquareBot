@@ -11,6 +11,7 @@ from PIL import Image
 import database
 
 MODEL_DIR = Path(__file__).resolve().parent / "model"
+IMAGES_DIR = Path(__file__).resolve().parent / "images"
 BASE_MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 
 st.set_page_config(
@@ -52,6 +53,7 @@ if "authenticated" not in st.session_state:
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
     st.session_state.authenticated = False
+st.session_state.setdefault("current_page", "chat")
 
 # -----------------------------------------------------------------------------
 # PALETTE STYLES & CUSTOM CSS (Using provided Blue & Brown palette)
@@ -312,6 +314,9 @@ if not st.session_state.chats:
 elif st.session_state.get("active_chat") not in st.session_state.chats:
     st.session_state.active_chat = next(iter(st.session_state.chats))
 
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "Chat"
+
 if "project_dialog" not in st.session_state:
     st.session_state.project_dialog = None
 if "project_dialog_chat_id" not in st.session_state:
@@ -434,6 +439,110 @@ def format_crochet_pattern(text: str) -> str:
     return "\n\n".join(lines).strip()
 
 
+def render_about_page() -> None:
+    st.markdown(
+        '<div class="main-title">About Crochet Stitches</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="main-subtitle">A quick guide to the basic and special '
+        "stitches you may see in crochet patterns.</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.subheader("Basic stitches")
+    st.caption(
+        "Abbreviations below use US crochet terminology. UK names are included "
+        "where they differ."
+    )
+
+    basic_stitches = [
+        (
+            "Chain (ch)",
+            "The foundation of many projects. Yarn is drawn through the loop "
+            "on the hook to make a chain of linked stitches.",
+        ),
+        (
+            "Slip stitch (sl st)",
+            "A short, nearly flat stitch used to join work, move across stitches, "
+            "or finish an edge.",
+        ),
+        (
+            "Single crochet (sc; UK double crochet)",
+            "Insert the hook into a stitch, pull up a loop, then yarn over and "
+            "pull through both loops. It makes a compact fabric.",
+        ),
+        (
+            "Half double crochet (hdc; UK half treble)",
+            "Yarn over, insert the hook and pull up a loop, then yarn over and "
+            "pull through all three loops on the hook.",
+        ),
+        (
+            "Double crochet (dc; UK treble)",
+            "Yarn over, insert the hook and pull up a loop, then pull through "
+            "two loops twice. It creates a taller, flexible stitch.",
+        ),
+        (
+            "Treble crochet (tr; UK double treble)",
+            "Yarn over twice before inserting the hook. Pull through two loops "
+            "at a time three times to make a tall, open stitch.",
+        ),
+    ]
+    for row_start in range(0, len(basic_stitches), 3):
+        columns = st.columns(3)
+        for column, (name, explanation) in zip(
+            columns, basic_stitches[row_start : row_start + 3]
+        ):
+            with column:
+                with st.container(border=True):
+                    st.markdown(f"**{name}**")
+                    st.write(explanation)
+
+    st.subheader("Special stitches")
+    st.write(
+        "These decorative stitches add texture or detail. The photos below "
+        "show each stitch; its explanation appears underneath."
+    )
+    image_directory = Path(__file__).resolve().parent / "images"
+    special_stitches = [
+        (
+            "Bobble stitch",
+            "Several partially completed stitches are worked into the same "
+            "stitch and closed together, forming a raised, rounded bump.",
+            "bobble stitch.jpe",
+        ),
+        (
+            "Picot stitch",
+            "A small loop, often made with a few chains joined back to the "
+            "work, creates a delicate decorative point along an edge.",
+            "picot stitch.jpe",
+        ),
+        (
+            "Popcorn stitch",
+            "A group of completed stitches is gathered together to form a "
+            "pronounced, textured puff that stands out from the fabric.",
+            "popcorn stitch.jpe",
+        ),
+    ]
+    columns = st.columns(len(special_stitches))
+    for column, (name, explanation, image_name) in zip(
+        columns, special_stitches
+    ):
+        with column:
+            with st.container(border=True):
+                st.image(
+                    str(image_directory / image_name),
+                    use_container_width=True,
+                )
+                st.markdown(f"**{name}**")
+                st.write(explanation)
+
+    st.markdown(
+        '<div class="footer-note">GrannySquareBot · Crochet stitch guide</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def generate_response(image_bytes: bytes) -> str:
     api_url = st.secrets["GRANNYSQUARE_API_URL"].rstrip("/")
     api_key = st.secrets["GRANNYSQUARE_API_KEY"]
@@ -481,6 +590,83 @@ def generate_response(image_bytes: bytes) -> str:
             + details
         ) from exc
 
+#ABOUT SECTION
+
+BASIC_STITCHES = [
+    ("MR", "Magic Ring", "An adjustable loop used to begin crocheting in the round. Pull the yarn tail to close the center."),
+    ("ch", "Chain", "A foundation stitch made by pulling yarn through the loop on your hook."),
+    ("sl st", "Slip Stitch", "A short stitch used to join rounds or move across stitches without adding height."),
+    ("sc", "Single Crochet", "Insert the hook, pull up a loop, yarn over, and pull through both loops."),
+    ("hdc", "Half Double Crochet", "Yarn over, insert the hook, pull up a loop, then yarn over and pull through all three loops."),
+    ("dc", "Double Crochet", "Yarn over, insert the hook, pull up a loop, then yarn over and pull through two loops twice."),
+    ("tr", "Treble Crochet", "Yarn over twice, insert the hook, pull up a loop, then pull through two loops three times."),
+]
+
+# Customize descriptions to match the stitch photos in your images folder.
+
+SPECIAL_STITCH_DESCRIPTIONS = {
+    "bobble stitch": (
+        "Several partially completed stitches are worked into the same "
+        "stitch and closed together, forming a raised, rounded bump."
+    ),
+    "picot stitch": (
+        "A small loop, often made with a few chains joined back to the "
+        "work, creates a delicate decorative point along an edge."
+    ),
+    "popcorn stitch": (
+        "A group of completed stitches is gathered together to form a "
+        "pronounced, textured puff that stands out from the fabric."
+    ),
+}
+
+
+def render_about_page():
+    st.markdown('<div class="main-title">About GrannySquareBot</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-subtitle">Learn crochet terminology and discover the project behind this app.</div>', unsafe_allow_html=True)
+
+    st.header("Basic Crochet Stitches")
+    st.caption("International US crochet terminology.")
+    for abbreviation, name, explanation in BASIC_STITCHES:
+        with st.container(border=True):
+            st.markdown(f"**{name} ({abbreviation})**")
+            st.write(explanation)
+
+    st.header("Special Crochet Stitches")
+    st.write("These stitches create decorative textures and details in crochet projects.")
+    image_files = sorted(
+        (file for file in IMAGES_DIR.iterdir()
+         if file.is_file() and file.suffix.lower() in {".png", ".jpg", ".jpe", ".jpeg", ".webp"}),
+        key=lambda file: file.stem.lower(),
+    ) if IMAGES_DIR.is_dir() else []
+
+    if not image_files:
+        st.info("Add stitch photos to the images folder to display them here.")
+    for file in image_files:
+        key = file.stem.lower().replace("-", " ").replace("_", " ").strip()
+        title = key.title()
+        description = SPECIAL_STITCH_DESCRIPTIONS.get(
+            file.stem.lower(),
+            "A decorative crochet technique. Add its specific explanation to SPECIAL_STITCH_DESCRIPTIONS in app.py.",
+        )
+        with st.container(border=True):
+            image_col, text_col = st.columns([1, 2], vertical_alignment="center")
+            with image_col:
+                st.image(str(file), use_container_width=True)
+            with text_col:
+                st.subheader(title)
+                st.write(description)
+
+    st.divider()
+    st.header("About the Developer")
+    st.write(
+        "GrannySquareBot was developed as a research project exploring how vision-language "
+        "models can generate written crochet instructions from granny square images. "
+        "The application uses a fine-tuned LLaVA model to assist crochet enthusiasts "
+        "in interpreting visual patterns."
+    )
+    st.caption("Developer: Felice Anastasia Lee · Tarumanagara University")
+
+
 # -----------------------------------------------------------------------------
 # SIDEBAR
 # -----------------------------------------------------------------------------
@@ -519,6 +705,7 @@ with st.sidebar:
                 use_container_width=True
             ):
                 st.session_state.active_chat = chat_id
+                st.session_state.current_page = "Chat"
                 st.rerun()
         with col_edit:
             if st.button(
@@ -533,16 +720,21 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("🚪 Exit / Logout", use_container_width=True):
+    if st.button("Exit / Logout", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user = None
         st.session_state.user_id = None
         st.session_state.loaded_user_id = None
         st.session_state.chats = {}
         st.session_state.active_chat = None
+        st.session_state.current_page = "Chat"
         st.session_state.project_dialog = None
         st.session_state.project_dialog_chat_id = None
         st.rerun()
+
+    if st.button("About", use_container_width=True, type="primary" if st.session_state.current_page == "About" else "secondary"):
+            st.session_state.current_page = "About"
+            st.rerun()
 
     st.caption("GrannySquareBot")
     st.caption("Image-to-text crochet pattern generation")
@@ -553,6 +745,10 @@ elif st.session_state.project_dialog == "rename":
     rename_chat_dialog()
 elif st.session_state.project_dialog == "confirm_delete":
     confirm_delete_chat_dialog()
+
+if st.session_state.current_page == "About":
+    render_about_page()
+    st.stop()
 
 # -----------------------------------------------------------------------------
 # MAIN VIEW & COMPACT CENTERED FILE UPLOADER
