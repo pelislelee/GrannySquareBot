@@ -690,13 +690,26 @@ def generate_response(image_bytes: bytes) -> str:
             timeout=600,
         )
 
+        
         if response.status_code == 422:
             data = response.json()
             detail = data.get("detail", {})
 
             if isinstance(detail, dict) and detail.get("code") == "INVALID_IMAGE":
                 raise ValueError(detail["message"])
+
+        response.raise_for_status()
+
+        result = response.json()
+        answer = result.get("answer", "").strip()
+
+        answer = format_crochet_pattern(answer)
+
+        if not answer:
+            raise RuntimeError("The API returned an empty response.")
+
         return answer
+
 
     
     except requests.Timeout as exc:
