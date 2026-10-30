@@ -23,7 +23,7 @@ st.set_page_config(
 
 database.initialize_database()
 
-@st.dialog("Sign In / Log In", width="small")
+@st.dialog("Sign In / Log In", width="small", dismissable=False)
 def login_dialog():
     st.write("Enter your username and password to continue.")
     
