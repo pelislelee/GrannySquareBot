@@ -23,37 +23,155 @@ st.set_page_config(
 
 database.initialize_database()
 
-@st.dialog("Sign In / Log In", width="small", dismissible=False)
+def validate_username(username):
+    if not username:
+        return "Username cannot be empty."
+    if any(char.isspace() for char in username):
+        return "Username cannot contain spaces."
+    return None
+
+
+def validate_password(password):
+    if len(password) < 8:
+        return "Password must contain at least 8 characters."
+    if not re.search(r"[A-Z]", password):
+        return "Password must contain at least one uppercase letter."
+    if not re.search(r"[0-9]", password):
+        return "Password must contain at least one number."
+    if not re.search(r"[^\w\s]|_", password):
+        return "Password must contain at least one special character."
+    return None
+
+
+def finish_login(username, user_id):
+    st.session_state.authenticated = True
+    st.session_state.user_id = user_id
+    st.session_state.user = username
+    st.session_state.loaded_user_id = None
+    st.rerun()
+
+
+
+@st.dialog("Welcome to GrannySquareBot", width="small", dismissible=False)
 def login_dialog():
-    st.write("Enter your username and password to continue.")
-    
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
+    if "auth_mode" not in st.session_state:
+        st.session_state.auth_mode = "Sign Up"
 
-        if submitted:
-            if username.strip() and password.strip():
-                user_id = database.authenticate_or_create_user(
-                    username.strip(), password
+    mode = st.session_state.auth_mode
+
+    if mode == "Sign Up":
+        st.subheader("Create an Account")
+        st.write("Sign up to get started with GrannySquareBot.")
+    else:
+        st.subheader("Welcome Back")
+        st.write("Log in to continue using GrannySquareBot.")
+
+    with st.form(f"auth_form_{mode}"):
+        username = st.text_input(
+            "Username",
+            key=f"username_{mode}"
+        )
+
+        password = st.text_input(
+            "Password",
+            type="password",
+            key=f"password_{mode}"
+        )
+
+        if mode == "Sign Up":
+            confirm_password = st.text_input(
+                "Confirm Password",
+                type="password",
+                key="confirm_password"
+            )
+
+            st.caption(
+                "Use at least 8 characters, one uppercase letter, "
+                "one number, and one special character."
+            )
+
+        submitted = st.form_submit_button(
+            mode,
+            use_container_width=True,
+            type="primary"
+        )
+
+    if submitted:
+        error = validate_username(username)
+
+        if error:
+            st.error(error)
+            return
+
+        if not password:
+            st.error("Password cannot be empty.")
+            return
+
+        if mode == "Sign Up":
+            error = validate_password(password)
+
+            if error:
+                st.error(error)
+                return
+
+            if password != confirm_password:
+                st.error("Passwords do not match.")
+                return
+
+            if database.username_exists(username):
+                st.error("Username is not available.")
+                return
+            user_id = database.register_user(username, password)
+            if user_id is None:
+                st.error("Username is not available.")
+                return
+            finish_login(username, user_id)
+
+        else:
+            if not database.username_exists(username):
+                st.error(
+                    "Username does not exist. Please sign up first."
                 )
-                if user_id is not None:
-                    st.session_state.authenticated = True
-                    st.session_state.user_id = user_id
-                    st.session_state.user = username.strip()
-                    st.session_state.loaded_user_id = None
-                    st.rerun()
-                else:
-                    st.error("Username or password is incorrect.")
-            else:
-                st.error("Username and password cannot be empty.")
+                return
+            user_id = database.authenticate_user(
+                username, password
+            )
+            if user_id is None:
+                st.error("Incorrect password. Please try again.")
+                return
 
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-if "user_id" not in st.session_state:
-    st.session_state.user_id = None
-    st.session_state.authenticated = False
-st.session_state.setdefault("current_page", "chat")
+            finish_login(username, user_id)
+
+    st.divider()
+    if mode == "Sign Up":
+        st.markdown(
+            "<p style='text-align:center;'>"
+            "Already have an account?"
+            "</p>",
+            unsafe_allow_html=True
+        )
+        if st.button(
+            "Log In",
+            key="switch_to_login",
+            use_container_width=True
+        ):
+            st.session_state.auth_mode = "Log In"
+            st.rerun()
+    else:
+        st.markdown(
+            "<p style='text-align:center;'>"
+            "Don't have an account?"
+            "</p>",
+            unsafe_allow_html=True
+        )
+        if st.button(
+            "Sign Up",
+            key="switch_to_signup",
+            use_container_width=True
+        ):
+            st.session_state.auth_mode = "Sign Up"
+            st.rerun()
+
 
 # -----------------------------------------------------------------------------
 # PALETTE STYLES & CUSTOM CSS (Using provided Blue & Brown palette)
@@ -228,6 +346,14 @@ div[data-testid="stHorizontalBlock"] button {
 </style>
 """, unsafe_allow_html=True)
 
+# Initialize authentication session state
+st.session_state.setdefault("authenticated", False)
+st.session_state.setdefault("user_id", None)
+st.session_state.setdefault("user", None)
+st.session_state.setdefault("loaded_user_id", None)
+st.session_state.setdefault("current_page", "Chat")
+
+# Show login / signup dialog if not authenticated
 if not st.session_state.authenticated:
     login_dialog()
     st.stop()

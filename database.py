@@ -6,48 +6,42 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-
-DB_PATH = Path(__file__).with_name("granny_square_bot.db")
+DB_PATH = Path(__file__).with_name('granny_square_bot.db')
 PASSWORD_HASH_ITERATIONS = 600_000
-
 
 @contextmanager
 def _connection(db_path: Path | None = None) -> Generator[sqlite3.Connection, None, None]:
     if db_path is None:
         db_path = DB_PATH
     connection = sqlite3.connect(db_path)
-    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute('PRAGMA foreign_keys = ON')
     try:
         with connection:
             yield connection
     finally:
         connection.close()
 
-
 def _hash_password(password: str, salt: bytes | None = None) -> str:
-    salt = salt or secrets.token_bytes(16)
-    password_hash = hashlib.pbkdf2_hmac(
-        "sha256", password.encode("utf-8"), salt, PASSWORD_HASH_ITERATIONS
-    )
-    return f"{salt.hex()}:{password_hash.hex()}"
-
+    salt = salt if salt is not None else secrets.token_bytes(16)
+    password_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, PASSWORD_HASH_ITERATIONS)
+    return f'{salt.hex()}:{password_hash.hex()}'
 
 def _verify_password(password: str, stored_hash: str) -> bool:
-    salt_hex, expected_hash = stored_hash.split(":", maxsplit=1)
-    actual_hash = _hash_password(password, bytes.fromhex(salt_hex)).split(":", maxsplit=1)[1]
-    return hmac.compare_digest(actual_hash, expected_hash)
-
+    try:
+        salt_hex, expected_hash = stored_hash.split(':', maxsplit=1)
+        actual_hash = _hash_password(password, bytes.fromhex(salt_hex)).split(':', maxsplit=1)[1]
+        return hmac.compare_digest(actual_hash, expected_hash)
+    except (ValueError, TypeError):
+        return False
 
 def initialize_database(db_path: Path | None = None) -> None:
     with _connection(db_path) as connection:
-        connection.executescript(
-            """
+        connection.executescript('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL
             );
-
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_name TEXT NOT NULL,
@@ -57,7 +51,6 @@ def initialize_database(db_path: Path | None = None) -> None:
                 user_id INTEGER NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             );
-
             CREATE TABLE IF NOT EXISTS patterns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -66,37 +59,38 @@ def initialize_database(db_path: Path | None = None) -> None:
                 project_id INTEGER NOT NULL,
                 FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
             );
-            """
-        )
-        project_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(projects)")
-        }
-        if "is_hidden" not in project_columns:
-            connection.execute(
-                "ALTER TABLE projects ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0"
-            )
+        ''')
+        project_columns = {row[1] for row in connection.execute('PRAGMA table_info(projects)')}
+        if 'is_hidden' not in project_columns:
+            connection.execute('ALTER TABLE projects ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0')
 
-
-def authenticate_or_create_user(
-    username: str, password: str, db_path: Path | None = None
-) -> int | None:
+def username_exists(username: str, db_path: Path | None = None) -> bool:
     with _connection(db_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        user = connection.execute(
-            "SELECT id, password_hash FROM users WHERE username = ?",
-            (username,),
-        ).fetchone()
+        return connection.execute('SELECT 1 FROM users WHERE username = ?', (username,)).fetchone() is not None
 
-        if user is not None:
-            if _verify_password(password, user[1]):
-                return int(user[0])
-            return None
-
-        cursor = connection.execute(
-            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-            (username, _hash_password(password)),
-        )
+def register_user(username: str, password: str, db_path: Path | None = None) -> int | None:
+    if not username or any(c.isspace() for c in username):
+        raise ValueError('Username cannot be empty or contain spaces.')
+    import re
+    if (len(password) < 8 or not re.search(r'[A-Z]', password)
+            or not re.search(r'[0-9]', password) or not re.search(r'[^\w\s]|_', password)):
+        raise ValueError('Password must be at least 8 characters with an uppercase letter, number, and special character.')
+    with _connection(db_path) as connection:
+        try:
+            cursor = connection.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)',
+                                        (username, _hash_password(password)))
+        except sqlite3.IntegrityError as exc:
+            if 'users.username' in str(exc) or 'UNIQUE constraint failed' in str(exc):
+                return None
+            raise
         return int(cursor.lastrowid)
+
+def authenticate_user(username: str, password: str, db_path: Path | None = None) -> int | None:
+    with _connection(db_path) as connection:
+        user = connection.execute('SELECT id, password_hash FROM users WHERE username = ?', (username,)).fetchone()
+    if user is None or not _verify_password(password, user[1]):
+        return None
+    return int(user[0])
 
 
 def create_project(
