@@ -700,21 +700,31 @@ def generate_response(image_bytes: bytes) -> str:
 
         return answer
 
+    
     except requests.Timeout as exc:
+        raise ConnectionError(
+            "The AI model server is not responding. Please try again later."
+        ) from exc
+
+    except requests.ConnectionError as exc:
+        raise ConnectionError(
+            "The AI model server is offline or unreachable."
+        ) from exc
+
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code in (502, 503, 504):
+            raise ConnectionError(
+                "The AI model server is currently unavailable."
+            ) from exc
         raise RuntimeError(
-            "The model took too long to respond. "
-            "Check that Colab is still running."
+            "The AI model server returned an error. Please try again later."
         ) from exc
 
     except requests.RequestException as exc:
-        details = ""
-        if exc.response is not None:
-            details = f" API response: {exc.response.text[:500]}"
-
-        raise RuntimeError(
-            "Could not get a response from the Colab model API."
-            + details
+        raise ConnectionError(
+            "Could not connect to the AI model server."
         ) from exc
+
 
 #ABOUT SECTION
 
@@ -995,9 +1005,21 @@ if uploaded_file is not None:
                 processed_images.add(image_id)
                 st.rerun()
 
-            except Exception as e:
-                st.error(f"Pattern generation failed: {e}")
-                st.exception(e)
+            except ConnectionError:
+                st.error(
+                    "⚠️ API is currently unavailable. "
+                    "The AI model server is offline or not responding. "
+                    "Please try again later.",
+                    icon="🚨"
+                )
+
+            except Exception:
+                st.error(
+                    "Pattern generation failed. "
+                    "Please try again later.",
+                    icon="⚠️"
+                )
+
 
 st.divider()
 
