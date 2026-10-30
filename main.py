@@ -690,14 +690,12 @@ def generate_response(image_bytes: bytes) -> str:
             timeout=600,
         )
 
-        response.raise_for_status()
-        result = response.json()
+        if response.status_code == 422:
+            data = response.json()
+            detail = data.get("detail", {})
 
-        answer = result.get("answer", "").strip()
-        answer = format_crochet_pattern(answer)
-        if not answer:
-            raise RuntimeError("The API returned an empty response.")
-
+            if isinstance(detail, dict) and detail.get("code") == "INVALID_IMAGE":
+                raise ValueError(detail["message"])
         return answer
 
     
@@ -1036,21 +1034,28 @@ if not messages:
     """, unsafe_allow_html=True)
 
 # Render generated outputs and history below the uploader
-for message in messages:
-    with st.chat_message(message["role"], avatar="🧶" if message["role"] == "assistant" else "👤"):
-        if message.get("image_bytes"):
-            st.image(
-                Image.open(BytesIO(message["image_bytes"])),
-                caption=message.get("image_name", "Granny Square Image"),
-                width=280
-            )
-        if message.get("content"):
-            if message["role"] == "assistant":
-                st.markdown(
-                    format_crochet_pattern(message["content"])
+
+# Render newest generated patterns first
+for i in range(len(messages) - 2, -1, -2):
+    for message in messages[i:i + 2]:
+        with st.chat_message(
+            message["role"],
+            avatar="🧶" if message["role"] == "assistant" else "👤"
+        ):
+            if message.get("image_bytes"):
+                st.image(
+                    Image.open(BytesIO(message["image_bytes"])),
+                    caption=message.get("image_name", "Granny Square Image"),
+                    width=280
                 )
-            else:
-                st.markdown(message["content"])
+
+            if message.get("content"):
+                if message["role"] == "assistant":
+                    st.markdown(
+                        format_crochet_pattern(message["content"])
+                    )
+                else:
+                    st.markdown(message["content"])
 
 st.markdown(
     '<div class="footer-note">GrannySquareBot · AI-assisted crochet pattern generation</div>',
