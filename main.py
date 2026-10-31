@@ -50,8 +50,6 @@ def finish_login(username, user_id):
     st.session_state.loaded_user_id = None
     st.rerun()
 
-
-
 @st.dialog("Welcome to GrannySquareBot", width="small", dismissible=False)
 def login_dialog():
     if "auth_mode" not in st.session_state:
@@ -96,6 +94,7 @@ def login_dialog():
             type="primary"
         )
 
+    # Handle authentication
     if submitted:
         error = validate_username(username)
 
@@ -121,10 +120,13 @@ def login_dialog():
             if database.username_exists(username):
                 st.error("Username is not available.")
                 return
+
             user_id = database.register_user(username, password)
+
             if user_id is None:
                 st.error("Username is not available.")
                 return
+
             finish_login(username, user_id)
 
         else:
@@ -133,9 +135,11 @@ def login_dialog():
                     "Username does not exist. Please sign up first."
                 )
                 return
+
             user_id = database.authenticate_user(
                 username, password
             )
+
             if user_id is None:
                 st.error("Incorrect password. Please try again.")
                 return
@@ -143,6 +147,7 @@ def login_dialog():
             finish_login(username, user_id)
 
     st.divider()
+
     if mode == "Sign Up":
         st.markdown(
             "<p style='text-align:center;'>"
@@ -150,13 +155,15 @@ def login_dialog():
             "</p>",
             unsafe_allow_html=True
         )
+
         if st.button(
             "Log In",
             key="switch_to_login",
             use_container_width=True
         ):
             st.session_state.auth_mode = "Log In"
-            st.rerun()
+            st.rerun(scope="fragment")
+
     else:
         st.markdown(
             "<p style='text-align:center;'>"
@@ -164,14 +171,14 @@ def login_dialog():
             "</p>",
             unsafe_allow_html=True
         )
+
         if st.button(
             "Sign Up",
             key="switch_to_signup",
             use_container_width=True
         ):
             st.session_state.auth_mode = "Sign Up"
-            st.rerun()
-
+            st.rerun(scope="fragment")
 
 # -----------------------------------------------------------------------------
 # PALETTE STYLES & CUSTOM CSS (Using provided Blue & Brown palette)
